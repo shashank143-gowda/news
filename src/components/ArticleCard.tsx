@@ -1,0 +1,377 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import type { Article } from "@/lib/api";
+import { aiFn } from "@/lib/api";
+import { WorkflowTracker } from "@/components/WorkflowTracker";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Slider } from "@/components/ui/slider";
+import { Textarea } from "@/components/ui/textarea";
+import { Crop, ImageIcon, LinkIcon, Loader2, RefreshCw, Sparkles, Trash2, Upload } from "lucide-react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+
+const catColor: Record<string, string> = {
+  Politics: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200",
+  Sports: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-200",
+  Crime: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200",
+  Agriculture: "bg-lime-100 text-lime-800 dark:bg-lime-950 dark:text-lime-200",
+  Education: "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-200",
+  Cinema: "bg-pink-100 text-pink-800 dark:bg-pink-950 dark:text-pink-200",
+  Business: "bg-amber-100 text-amber-950 dark:bg-amber-950 dark:text-amber-200",
+  Other: "bg-muted text-muted-foreground",
+};
+
+export function ArticleCard({ article, editable = true }: { article: Article; editable?: boolean }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [headline, setHeadline] = useState(article.headline ?? "");
+  const [body, setBody] = useState(article.corrected_text ?? article.ocr_text ?? article.raw_text ?? "");
+  const [imageUrl, setImageUrl] = useState(article.image_url ?? "");
+  const [imagePrompt, setImagePrompt] = useState("");
+  const [genLoading, setGenLoading] = useState(false);
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const [cropOpen, setCropOpen] = useState(false);
+  const [cropLoading, setCropLoading] = useState(false);
+  const [cropZoom, setCropZoom] = useState(1.15);
+  const [cropX, setCropX] = useState(50);
+  const [cropY, setCropY] = useState(50);
+
+  useEffect(() => {
+    if (!editing) {
+      setHeadline(article.headline ?? "");
+      setBody(article.corrected_text ?? article.ocr_text ?? article.raw_text ?? "");
+      setImageUrl(article.image_url ?? "");
+      setImagePrompt("");
+    }
+  }, [article, editing]);
+
+  const imageWorkflow = (hasImage = true) => ({
+    ...(article.workflow_status ?? {}),
+    image: hasImage,
+    ready_for_layout: true,
+  });
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const nextImageUrl = imageUrl.trim() || null;
+      const { error } = await supabase.from("articles").update({
+        headline,
+        corrected_text: body,
+        image_url: nextImageUrl,
+        image_source: nextImageUrl ? article.image_source ?? "manual" : null,
+        workflow_status: nextImageUrl ? imageWorkflow(true) : article.workflow_status,
+      }).eq("id", article.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["articles"] });
+      setEditing(false);
+      toast.success("Saved");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const del = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("articles").delete().eq("id", article.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["articles"] });
+      toast.success("Removed");
+    },
+  });
+
+  async function saveImageUrl(nextImageUrl: string, source: string) {
+    const { error } = await supabase.from("articles").update({
+      image_url: nextImageUrl,
+      image_source: source,
+      workflow_status: imageWorkflow(true),
+    }).eq("id", article.id);
+    if (error) throw error;
+
+    setImageUrl(nextImageUrl);
+    qc.invalidateQueries({ queryKey: ["articles"] });
+  }
+
+  async function uploadImageBlob(blob: Blob, source: string, extension = "jpg") {
+    const path = `article-images/${article.newspaper_id}/${article.id}/${crypto.randomUUID()}.${extension}`;
+    const { error: uploadError } = await supabase.storage.from("generated-assets").upload(path, blob, {
+      cacheControl: "31536000",
+      contentType: blob.type || "image/jpeg",
+    });
+    if (uploadError) throw uploadError;
+
+    const { data, error: urlError } = await supabase.storage.from("generated-assets").createSignedUrl(path, 60 * 60 * 24 * 365);
+    if (urlError) throw urlError;
+    const uploadedUrl = data?.signedUrl;
+    if (!uploadedUrl) throw new Error("Could not create image URL");
+
+    await saveImageUrl(uploadedUrl, source);
+    return uploadedUrl;
+  }
+
+  async function genImage() {
+    setGenLoading(true);
+    try {
+      const { image_url } = await aiFn.image({
+        prompt: imagePrompt.trim() || undefined,
+        headline: headline || article.headline || "Kannada news article",
+        summary: article.summary,
+        category: article.category,
+        priority_score: article.priority_score,
+        corrected_text: body,
+        raw_text: article.raw_text,
+      });
+      await saveImageUrl(image_url, "ai_generated");
+      toast.success("AI image generated");
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setGenLoading(false);
+    }
+  }
+
+  async function uploadImage(file: File) {
+    setUploadLoading(true);
+    try {
+      const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
+      await uploadImageBlob(file, "uploaded", extension);
+      toast.success("Image added");
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setUploadLoading(false);
+    }
+  }
+
+  async function saveCroppedImage() {
+    if (!imageUrl) return;
+
+    setCropLoading(true);
+    try {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.referrerPolicy = "no-referrer";
+      const loaded = new Promise<HTMLImageElement>((resolve, reject) => {
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("Could not load this image for cropping. Upload it first, then crop."));
+      });
+      img.src = imageUrl;
+      const image = await loaded;
+
+      const outputWidth = 1200;
+      const outputHeight = 760;
+      const baseScale = Math.max(outputWidth / image.naturalWidth, outputHeight / image.naturalHeight);
+      const scale = baseScale * cropZoom;
+      const sourceWidth = outputWidth / scale;
+      const sourceHeight = outputHeight / scale;
+      const sourceX = Math.max(0, Math.min(image.naturalWidth - sourceWidth, (image.naturalWidth - sourceWidth) * (cropX / 100)));
+      const sourceY = Math.max(0, Math.min(image.naturalHeight - sourceHeight, (image.naturalHeight - sourceHeight) * (cropY / 100)));
+
+      const canvas = document.createElement("canvas");
+      canvas.width = outputWidth;
+      canvas.height = outputHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Could not prepare image crop");
+      ctx.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, outputWidth, outputHeight);
+
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((nextBlob) => {
+          if (nextBlob) resolve(nextBlob);
+          else reject(new Error("Could not save cropped image"));
+        }, "image/jpeg", 0.9);
+      });
+
+      await uploadImageBlob(blob, "cropped", "jpg");
+      setCropOpen(false);
+      toast.success("Photo cropped");
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setCropLoading(false);
+    }
+  }
+
+  async function markNoImage() {
+    await supabase.from("articles").update({ workflow_status: imageWorkflow(true) }).eq("id", article.id);
+    qc.invalidateQueries({ queryKey: ["articles"] });
+  }
+
+  function cancelEdit() {
+    setHeadline(article.headline ?? "");
+    setBody(article.corrected_text ?? article.ocr_text ?? article.raw_text ?? "");
+    setImageUrl(article.image_url ?? "");
+    setImagePrompt("");
+    setEditing(false);
+  }
+
+  const priority = article.priority_score ?? 0;
+  const priorityBadge =
+    priority >= 90 ? "bg-red-600 text-white" :
+    priority >= 70 ? "bg-orange-500 text-white" :
+    priority >= 45 ? "bg-amber-400 text-amber-950" :
+    "bg-muted text-muted-foreground";
+
+  return (
+    <div className="overflow-hidden rounded-lg border bg-card">
+      <div className="flex items-start gap-4 p-4">
+        <div className="w-24 shrink-0">
+          {article.image_url ? (
+            <img src={article.image_url} alt="" className="h-24 w-24 rounded object-cover" />
+          ) : (
+            <div className="flex h-24 w-24 items-center justify-center rounded bg-muted text-muted-foreground">
+              <ImageIcon className="h-6 w-6" />
+            </div>
+          )}
+        </div>
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex items-center gap-2">
+            {article.category && <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${catColor[article.category]}`}>{article.category}</span>}
+            <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${priorityBadge}`}>P{priority}</span>
+            {article.image_source === "ai_generated" && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">AI IMAGE</span>}
+            {article.image_source === "uploaded" && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">UPLOADED</span>}
+          </div>
+          {editing ? (
+            <>
+              <Input value={headline} onChange={(e) => setHeadline(e.target.value)} className="font-kannada text-lg font-semibold" />
+              <Textarea rows={4} value={body} onChange={(e) => setBody(e.target.value)} className="font-kannada text-sm" />
+              <div className="grid gap-2 rounded-md border bg-background/60 p-3">
+                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                  <ImageIcon className="h-3.5 w-3.5" />
+                  Article image
+                </div>
+                {imageUrl ? (
+                  <img src={imageUrl} alt="" className="h-32 w-full rounded-md object-cover" />
+                ) : (
+                  <div className="flex h-24 w-full items-center justify-center rounded-md border border-dashed text-muted-foreground">
+                    <ImageIcon className="h-5 w-5" />
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <Input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="Paste image URL" />
+                  <Button size="sm" variant="outline" onClick={() => setImageUrl(imageUrl.trim())} title="Use pasted image URL">
+                    <LinkIcon className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+                <Textarea
+                  rows={3}
+                  value={imagePrompt}
+                  onChange={(e) => setImagePrompt(e.target.value)}
+                  placeholder="Image prompt, optional. Example: show farmers inspecting damaged paddy crop after heavy rain, realistic Karnataka village photo."
+                  className="text-sm"
+                />
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={genImage} disabled={genLoading}>
+                    {genLoading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1 h-3.5 w-3.5" />}
+                    Generate image
+                  </Button>
+                  {imageUrl && (
+                    <Button size="sm" variant="outline" onClick={() => setCropOpen(true)}>
+                      <Crop className="mr-1 h-3.5 w-3.5" />
+                      Crop photo
+                    </Button>
+                  )}
+                  <Button size="sm" variant="outline" asChild disabled={uploadLoading}>
+                    <label className="cursor-pointer">
+                      {uploadLoading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Upload className="mr-1 h-3.5 w-3.5" />}
+                      Upload image
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          e.currentTarget.value = "";
+                          if (file) void uploadImage(file);
+                        }}
+                      />
+                    </label>
+                  </Button>
+                  {imageUrl && <Button size="sm" variant="ghost" onClick={() => setImageUrl("")}>Remove image</Button>}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={() => save.mutate()} disabled={save.isPending}>Save</Button>
+                <Button size="sm" variant="outline" onClick={cancelEdit}>Cancel</Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h4 className="font-kannada text-xl font-bold leading-snug">{article.headline ?? "..."}</h4>
+              <p className="line-clamp-2 font-kannada text-sm text-muted-foreground">{article.summary ?? article.corrected_text ?? article.ocr_text ?? article.raw_text}</p>
+            </>
+          )}
+        </div>
+      </div>
+      <div className="border-t bg-muted/30 px-4 py-2">
+        <WorkflowTracker status={article.workflow_status} />
+      </div>
+      {editable && !editing && (
+        <div className="flex flex-wrap gap-2 border-t px-4 py-2">
+          <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Edit</Button>
+          <Button size="sm" variant="outline" onClick={genImage} disabled={genLoading}>
+            {genLoading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : article.image_url ? <RefreshCw className="mr-1 h-3.5 w-3.5" /> : <Sparkles className="mr-1 h-3.5 w-3.5" />}
+            {article.image_url ? "Regenerate image" : "Generate AI image"}
+          </Button>
+          {!article.image_url && (
+            <Button size="sm" variant="ghost" onClick={markNoImage}>No image needed</Button>
+          )}
+          <div className="ml-auto">
+            <Button size="sm" variant="ghost" onClick={() => del.mutate()} className="text-destructive"><Trash2 className="h-3.5 w-3.5" /></Button>
+          </div>
+        </div>
+      )}
+      <Dialog open={cropOpen} onOpenChange={setCropOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Crop photo</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <div className="overflow-hidden rounded-md border bg-muted">
+              {imageUrl && (
+                <div
+                  className="aspect-[30/19] bg-cover bg-no-repeat"
+                  style={{
+                    backgroundImage: `url(${imageUrl})`,
+                    backgroundPosition: `${cropX}% ${cropY}%`,
+                    backgroundSize: `${cropZoom * 100}% auto`,
+                  }}
+                />
+              )}
+            </div>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <label className="grid gap-2 text-xs font-medium text-muted-foreground">
+                Zoom
+                <Slider min={1} max={3} step={0.05} value={[cropZoom]} onValueChange={([value]) => setCropZoom(value)} />
+              </label>
+              <label className="grid gap-2 text-xs font-medium text-muted-foreground">
+                Horizontal
+                <Slider min={0} max={100} step={1} value={[cropX]} onValueChange={([value]) => setCropX(value)} />
+              </label>
+              <label className="grid gap-2 text-xs font-medium text-muted-foreground">
+                Vertical
+                <Slider min={0} max={100} step={1} value={[cropY]} onValueChange={([value]) => setCropY(value)} />
+              </label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCropOpen(false)}>Cancel</Button>
+            <Button onClick={saveCroppedImage} disabled={cropLoading}>
+              {cropLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Save crop
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
