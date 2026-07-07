@@ -6,7 +6,7 @@ import { aiFn, type Article, type Newspaper } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AddArticleFlow } from "@/components/AddArticleFlow";
 import { ArticleCard } from "@/components/ArticleCard";
-import { NewspaperPage } from "@/components/NewspaperPage";
+import { getPrintPageCount, NewspaperPage } from "@/components/NewspaperPage";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ArrowLeft, Layout as LayoutIcon, Send, Loader2, Wand2 } from "lucide-react";
@@ -79,8 +79,9 @@ function EditionWorkspace() {
 
   if (!newspaper) return <div className="text-sm text-muted-foreground">Loading…</div>;
 
-  const pages = Array.from({ length: newspaper.number_of_pages }, (_, i) => i + 1);
   const laidOut = articles.filter((a) => a.page_number);
+  const totalPages = getPrintPageCount(articles, newspaper.number_of_pages);
+  const pages = Array.from({ length: totalPages }, (_, i) => i + 1);
 
   const canEdit = role === "editor" && !["pending_approval", "approved", "published"].includes(newspaper.status);
 
@@ -98,7 +99,7 @@ function EditionWorkspace() {
               <span>·</span>
               <span>{newspaper.language}</span>
               <span>·</span>
-              <span>{newspaper.number_of_pages} pages</span>
+              <span>{totalPages} pages</span>
               <StatusBadge status={newspaper.status} />
             </div>
           </div>
@@ -149,7 +150,7 @@ function EditionWorkspace() {
             pages.map((p) => (
               <div key={p}>
                 <div className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Page {p}</div>
-                <NewspaperPage newspaper={newspaper} articles={articles} pageNumber={p} />
+                <NewspaperPage newspaper={newspaper} articles={articles} pageNumber={p} totalPages={totalPages} />
               </div>
             ))
           )}

@@ -134,6 +134,15 @@ export function ArticleCard({
     image: hasImage,
     ready_for_layout: true,
   });
+  const articleDisplayText = [
+    article.headline,
+    article.summary,
+    article.corrected_text,
+    article.ocr_text,
+    article.raw_text,
+  ].filter(Boolean).join("\n");
+  const sourceText = article.raw_text ?? article.ocr_text ?? article.corrected_text ?? article.summary ?? article.headline ?? "";
+  const showConvertToKannada = editable && needsKannadaConversion(articleDisplayText);
 
   const save = useMutation({
     mutationFn: async () => {
@@ -203,6 +212,38 @@ export function ArticleCard({
       toast.success("Removed");
     },
     onError: (e: unknown) => toast.error(errorMessage(e)),
+  });
+
+  const convertToKannada = useMutation({
+    mutationFn: async () => {
+      const source = sourceText.trim();
+      if (source.length < 20) throw new Error("Article text is too short to convert");
+
+      const ai = await aiFn.process(source);
+      const { error } = await supabase.from("articles").update({
+        corrected_text: ai.corrected_text,
+        headline: ai.headline,
+        summary: ai.summary,
+        category: ai.category,
+        priority_score: ai.priority_score,
+        workflow_status: {
+          ...(article.workflow_status ?? {}),
+          ai_processing: true,
+          headline: true,
+          category: true,
+          priority: true,
+        },
+      }).eq("id", article.id);
+      if (error) throw error;
+      return ai;
+    },
+    onSuccess: (ai) => {
+      setHeadline(ai.headline);
+      setBody(ai.corrected_text);
+      qc.invalidateQueries({ queryKey: ["articles", article.newspaper_id] });
+      toast.success("Converted to Kannada");
+    },
+    onError: (e: any) => toast.error(e.message),
   });
 
   async function saveImageUrl(nextImageUrl: string, source: string) {

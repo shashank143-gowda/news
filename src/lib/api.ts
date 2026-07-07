@@ -40,6 +40,10 @@ export interface Article {
   created_at: string;
 }
 
+type ImageArticlePayload = Partial<Article> & {
+  prompt?: string;
+};
+
 const FN_URL = (name: string) =>
   `${import.meta.env.VITE_BACKEND_URL ?? import.meta.env.VITE_SUPABASE_URL}/functions/v1/${name}`;
 

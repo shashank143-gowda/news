@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { NewspaperPage } from "@/components/NewspaperPage";
+import { getPrintPageCount, NewspaperPage } from "@/components/NewspaperPage";
 import type { Article, Newspaper } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Download, FileText, Radio, Instagram, Facebook, MessageCircle, ArrowLeft } from "lucide-react";
@@ -39,7 +39,7 @@ function PublishedView() {
     const pages = previewRef.current.querySelectorAll("[data-page]");
     const pdf = new jsPDF({ unit: "px", format: [780, 1080] });
     for (let i = 0; i < pages.length; i++) {
-      const canvas = await html2canvas(pages[i] as HTMLElement, { backgroundColor: "#f6efdc", scale: 1.5 });
+      const canvas = await html2canvas(pages[i] as HTMLElement, { backgroundColor: "#ffffff", scale: 1.5 });
       const img = canvas.toDataURL("image/jpeg", 0.85);
       if (i > 0) pdf.addPage();
       pdf.addImage(img, "JPEG", 0, 0, 780, 1080);
@@ -48,7 +48,8 @@ function PublishedView() {
   }
 
   if (!newspaper) return <div>Loading…</div>;
-  const pages = Array.from({ length: newspaper.number_of_pages }, (_, i) => i + 1);
+  const totalPages = getPrintPageCount(articles, newspaper.number_of_pages);
+  const pages = Array.from({ length: totalPages }, (_, i) => i + 1);
   const topArticles = [...articles].sort((a, b) => (b.priority_score ?? 0) - (a.priority_score ?? 0)).slice(0, 3);
 
   return (
@@ -100,7 +101,7 @@ function PublishedView() {
         <div ref={previewRef} className="space-y-6">
           {pages.map((p) => (
             <div key={p} data-page>
-              <NewspaperPage newspaper={newspaper} articles={articles} pageNumber={p} />
+              <NewspaperPage newspaper={newspaper} articles={articles} pageNumber={p} totalPages={totalPages} />
             </div>
           ))}
         </div>

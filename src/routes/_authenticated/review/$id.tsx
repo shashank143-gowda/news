@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { aiFn, type Article, type Newspaper } from "@/lib/api";
-import { NewspaperPage } from "@/components/NewspaperPage";
+import { getPrintPageCount, NewspaperPage } from "@/components/NewspaperPage";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -89,7 +89,8 @@ function ReviewEdition() {
   });
 
   if (!newspaper) return <div>Loading…</div>;
-  const pages = Array.from({ length: newspaper.number_of_pages }, (_, i) => i + 1);
+  const totalPages = getPrintPageCount(articles, newspaper.number_of_pages);
+  const pages = Array.from({ length: totalPages }, (_, i) => i + 1);
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -108,7 +109,7 @@ function ReviewEdition() {
           {pages.map((p) => (
             <div key={p}>
               <div className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">Page {p}</div>
-              <NewspaperPage newspaper={newspaper} articles={articles} pageNumber={p} />
+              <NewspaperPage newspaper={newspaper} articles={articles} pageNumber={p} totalPages={totalPages} />
             </div>
           ))}
         </div>
@@ -119,7 +120,7 @@ function ReviewEdition() {
           <h3 className="font-semibold">Summary</h3>
           <ul className="mt-2 space-y-1 text-sm">
             <li>{articles.length} articles</li>
-            <li>{newspaper.number_of_pages} pages</li>
+            <li>{totalPages} pages</li>
             <li>Categories: {[...new Set(articles.map((a) => a.category).filter(Boolean))].join(", ") || "—"}</li>
           </ul>
         </div>

@@ -66,7 +66,7 @@
   --input: oklch(0.92 0.008 90);
   --ring: oklch(0.42 0.19 28);
 
-  --newsprint: oklch(0.965 0.018 82);          /* cream newsprint bg */
+  --newsprint: oklch(1 0 0);
   --newsprint-ink: oklch(0.14 0.01 260);
   --newsprint-rule: oklch(0.75 0.02 82);
 
@@ -95,7 +95,7 @@
   --border: oklch(1 0 0 / 12%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.6 0.19 28);
-  --newsprint: oklch(0.965 0.018 82);
+  --newsprint: oklch(1 0 0);
   --newsprint-ink: oklch(0.14 0.01 260);
   --newsprint-rule: oklch(0.75 0.02 82);
   --sidebar: oklch(0.14 0.02 260);
