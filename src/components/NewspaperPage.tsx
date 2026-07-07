@@ -12,12 +12,25 @@ type PrintArticle = Article & {
   print_id?: string;
   print_text?: string;
   continued?: boolean;
-  text_only?: boolean;
 };
 
-const ARTICLES_PER_PAGE = 7;
-const LEAD_TEXT_LIMIT = 1500;
-const STORY_TEXT_LIMIT = 540;
+const PRINT_PAGE_WIDTH = 780;
+const PRINT_PAGE_HEIGHT = 1084;
+const PRINT_PAGE_PADDING = "28px 32px";
+const ARTICLES_PER_PAGE = 4;
+const LEAD_TEXT_LIMIT = 720;
+const STORY_TEXT_LIMIT = 220;
+
+const ARTICLE_BACKGROUND_COLORS = new Set([
+  "#fff4bf",
+  "#dbeafe",
+  "#dcfce7",
+  "#ffedd5",
+  "#ffe4e6",
+  "#e5e7eb",
+]);
+
+const BACKGROUND_COLOR_FALLBACK_KEY = "article_background_color";
 
 function articleBody(article: Article) {
   return article.corrected_text ?? article.ocr_text ?? article.raw_text ?? article.summary ?? "";
@@ -25,22 +38,22 @@ function articleBody(article: Article) {
 
 function takeTextChunk(text: string, limit: number) {
   if (text.length <= limit) return [text, ""] as const;
+
   const slice = text.slice(0, limit);
-  const breakAt = Math.max(slice.lastIndexOf("\n"), slice.lastIndexOf(" "), slice.lastIndexOf("."), slice.lastIndexOf("।"));
-  const end = breakAt > limit * 0.65 ? breakAt + 1 : limit;
+  const breakAt = Math.max(
+    slice.lastIndexOf("\n"),
+    slice.lastIndexOf(" "),
+    slice.lastIndexOf("."),
+    slice.lastIndexOf("।"),
+  );
+  const end = breakAt > limit * 0.6 ? breakAt + 1 : limit;
+
   return [text.slice(0, end).trim(), text.slice(end).trim()] as const;
 }
 
 function bodyTextClass(text = "", lead = false) {
-  const length = text.length;
-
-  if (lead) {
-    if (length > 1500) return "text-[10.5px] leading-snug";
-    return "text-[11px] leading-snug";
-  }
-
-  if (length > 620) return "text-[9.75px] leading-snug";
-  if (length > 450) return "text-[10px] leading-snug";
+  if (lead) return text.length > 600 ? "text-[11px] leading-snug" : "text-[12px] leading-snug";
+  if (text.length > 180) return "text-[10px] leading-snug";
   return "text-[10.5px] leading-snug";
 }
 
@@ -60,10 +73,8 @@ export function paginatePrintArticles(articles: Article[]) {
   let slot = 0;
 
   for (const article of sorted) {
-    let remaining = articleBody(article).trim();
+    let remaining = articleBody(article).trim() || article.summary?.trim() || "";
     let chunkIndex = 0;
-
-    if (!remaining) remaining = article.summary ?? "";
 
     while (remaining) {
       if (slot >= ARTICLES_PER_PAGE) {
@@ -82,13 +93,13 @@ export function paginatePrintArticles(articles: Article[]) {
         id: `${article.id}-print-${chunkIndex}`,
         page_number: page,
         position: isLeadSlot ? "top" : article.position,
-        headline_size: isLeadSlot ? "big" : article.headline_size === "big" ? "medium" : article.headline_size,
+        headline_size:
+          isLeadSlot ? "big" : article.headline_size === "big" ? "medium" : article.headline_size,
         image_url: continued ? null : article.image_url,
         summary: continued ? null : article.summary,
         print_id: article.id,
         print_text: chunk,
         continued,
-        text_only: continued,
         corrected_text: chunk,
         ocr_text: null,
         raw_text: null,
@@ -117,7 +128,11 @@ function PrajavaniMasthead() {
           ಪ್ರಜಾ
         </span>
         <div className="mb-1 flex w-28 justify-center sm:w-36">
-          <img src="/prajavani-nandi.png" alt="" className="h-12 w-28 object-contain sm:h-14 sm:w-36" />
+          <img
+            src="/prajavani-nandi.png"
+            alt=""
+            className="h-12 w-28 object-contain sm:h-14 sm:w-36"
+          />
         </div>
         <span className="text-left font-kannada-serif text-[56px] font-black leading-none tracking-normal sm:text-[74px]">
           ವಾಣಿ
@@ -129,19 +144,6 @@ function PrajavaniMasthead() {
     </div>
   );
 }
-
-/** Renders one newspaper page in real column layout with headline hierarchy. */
-
-const ARTICLE_BACKGROUND_COLORS = new Set([
-  "#fff4bf",
-  "#dbeafe",
-  "#dcfce7",
-  "#ffedd5",
-  "#ffe4e6",
-  "#e5e7eb",
-]);
-
-const BACKGROUND_COLOR_FALLBACK_KEY = "article_background_color";
 
 function normalizeArticleBackgroundColor(value: unknown) {
   if (typeof value === "string") {
@@ -158,128 +160,144 @@ function articleBackgroundStyle(article: Article): CSSProperties | undefined {
   const backgroundColor =
     normalizeArticleBackgroundColor(article.background_color) ||
     normalizeArticleBackgroundColor(workflowStatus?.[BACKGROUND_COLOR_FALLBACK_KEY]);
+
   if (!backgroundColor) return undefined;
+
   return {
     backgroundColor,
-    padding: "10px",
+    padding: "8px",
     borderRadius: 2,
   };
 }
-export function NewspaperPage({ newspaper, articles, pageNumber }: Props) {
-  const pageArticles = articles
-    .filter((a) => (a.page_number ?? 0) === pageNumber)
-    .sort((a, b) => (a.position === "top" ? -1 : b.position === "top" ? 1 : 0));
 
+function articleText(article: PrintArticle) {
+  return article.print_text ?? article.corrected_text ?? article.summary ?? article.ocr_text ?? article.raw_text ?? "";
+}
+
+export function NewspaperPage({ newspaper, articles, pageNumber, totalPages }: Props) {
+  const pageArticles = paginatePrintArticles(articles).get(pageNumber) ?? [];
   const lead = pageArticles.find((a) => a.headline_size === "big") ?? pageArticles[0];
   const rest = pageArticles.filter((a) => a.id !== lead?.id);
-  const leadText = lead ? lead.print_text ?? lead.corrected_text ?? lead.ocr_text ?? lead.raw_text ?? "" : "";
+  const leadText = lead ? articleText(lead) : "";
+  const displayTotalPages = totalPages ?? newspaper.number_of_pages;
 
   return (
-    <div
-      className="newsprint mx-auto shadow-xl"
-      style={{ width: "100%", maxWidth: 780, aspectRatio: "0.72", padding: "28px 32px" }}
-    >
-      {/* Masthead only on page 1 */}
-      {pageNumber === 1 && (
-        <div className="mb-3 border-b-4 border-double border-newsprint-ink pb-3 text-center">
-          <div className="font-serif text-5xl font-black tracking-tight">
-            {newspaper.edition_name}
+    <div className="w-full overflow-x-auto pb-2">
+      <div
+        data-print-page
+        className="newsprint mx-auto flex flex-col overflow-hidden shadow-xl"
+        style={{
+          width: PRINT_PAGE_WIDTH,
+          minWidth: PRINT_PAGE_WIDTH,
+          height: PRINT_PAGE_HEIGHT,
+          padding: PRINT_PAGE_PADDING,
+          boxSizing: "border-box",
+        }}
+      >
+        {pageNumber === 1 ? (
+          <div className="mb-3 shrink-0 border-b-4 border-double border-newsprint-ink pb-3 text-center">
+            <PrajavaniMasthead />
+            <div className="mt-2 flex justify-between border-t border-newsprint-rule pt-1 text-[10px] uppercase tracking-widest">
+              <span>{newspaper.language}</span>
+              <span>{new Date(newspaper.edition_date).toDateString()}</span>
+              <span>
+                Page {pageNumber} of {displayTotalPages}
+              </span>
+            </div>
           </div>
-          <div className="mt-1 flex justify-between text-[10px] uppercase tracking-widest">
-            <span>{newspaper.language}</span>
-            <span>{new Date(newspaper.edition_date).toDateString()}</span>
-            <span>
-              Page {pageNumber} of {newspaper.number_of_pages}
-            </span>
+        ) : (
+          <div className="mb-2 flex shrink-0 items-center justify-between border-b border-newsprint-rule pb-1 text-[9px] uppercase tracking-widest">
+            <span>{newspaper.edition_name}</span>
+            <span>Page {pageNumber}</span>
           </div>
+        )}
+
+        {!lead && (
+          <div className="flex flex-1 items-center justify-center text-sm italic opacity-60">
+            Advertisement space
+          </div>
+        )}
+
+        {lead && (
+          <div
+            className="mb-3 shrink-0 border-b border-newsprint-rule pb-2"
+            style={articleBackgroundStyle(lead)}
+          >
+            <div className="text-[10px] font-bold uppercase tracking-widest text-primary">
+              {lead.continued ? "Continued" : lead.category}
+            </div>
+            <h1 className="mt-1 font-kannada-serif text-3xl font-black leading-tight">
+              {lead.headline}
+            </h1>
+            {lead.summary && (
+              <p className="mt-1.5 font-kannada text-xs italic leading-snug opacity-80">
+                {lead.summary}
+              </p>
+            )}
+            <div className="mt-2 grid grid-cols-3 gap-3">
+              {lead.image_url && (
+                <div className="col-span-3">
+                  <img
+                    src={lead.image_url}
+                    alt=""
+                    className="h-36 w-full object-cover"
+                  />
+                  <div className="text-[9px] italic opacity-70">Photo caption</div>
+                </div>
+              )}
+              <div
+                className={`col-span-3 font-kannada ${bodyTextClass(leadText, true)}`}
+                style={{ columnCount: 3, columnGap: 12 }}
+              >
+                {leadText}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="grid min-h-0 flex-1 grid-cols-2 gap-3 overflow-hidden">
+          {rest.map((article) => {
+            const text = articleText(article);
+            return (
+              <div
+                key={article.id}
+                className="min-h-0 overflow-hidden border-t border-newsprint-rule pt-2"
+                style={articleBackgroundStyle(article)}
+              >
+                <div className="text-[9px] font-bold uppercase tracking-widest text-primary">
+                  {article.continued ? "Continued" : article.category}
+                </div>
+                <h3
+                  className={`font-kannada-serif font-bold leading-tight ${article.headline_size === "medium" ? "text-base" : "text-sm"}`}
+                >
+                  {article.headline}
+                </h3>
+                {article.image_url && (
+                  <img
+                    src={article.image_url}
+                    alt=""
+                    className="mt-1.5 h-20 w-full object-cover"
+                  />
+                )}
+                <p
+                  className={`mt-1 font-kannada ${bodyTextClass(text)}`}
+                  style={{
+                    columnCount: article.column_count && article.column_count > 1 ? 2 : 1,
+                    columnGap: 8,
+                  }}
+                >
+                  {text}
+                </p>
+              </div>
+            );
+          })}
         </div>
-      )}
-      {pageNumber !== 1 && (
-        <div className="mb-1 flex shrink-0 items-center justify-between border-b border-newsprint-rule pb-1 text-[9px] uppercase tracking-widest">
+
+        <div className="mt-1 flex shrink-0 justify-between border-t border-newsprint-rule pt-0.5 text-[9px] uppercase tracking-widest">
           <span>{newspaper.edition_name}</span>
+          <span>{new Date(newspaper.edition_date).toLocaleDateString()}</span>
           <span>Page {pageNumber}</span>
         </div>
-      )}
-
-      {!lead && (
-        <div className="flex h-full items-center justify-center text-sm italic opacity-60">
-          — Advertisement space —
-        </div>
-      )}
-
-      {lead && (
-        <div
-          className="mb-4 border-b border-newsprint-rule pb-3"
-          style={articleBackgroundStyle(lead)}
-        >
-          <div className="text-[10px] font-bold uppercase tracking-widest text-primary">
-            {lead.category}
-          </div>
-          <h1 className="mt-1 font-kannada-serif text-4xl font-black leading-tight">
-            {lead.headline}
-          </h1>
-          {lead.summary && (
-            <p className="mt-2 font-kannada text-sm italic opacity-80">{lead.summary}</p>
-          )}
-          <div className="mt-3 grid grid-cols-3 gap-3">
-            {lead.image_url && (
-              <div className="col-span-3">
-                <img
-                  src={lead.image_url}
-                  alt=""
-                  className="w-full object-cover"
-                  style={{ maxHeight: 240 }}
-                />
-                <div className="text-[9px] italic opacity-70">— Photo caption —</div>
-              </div>
-            )}
-            <div
-              className="col-span-3 font-kannada text-[13px] leading-relaxed"
-              style={{ columnCount: 3, columnGap: 12 }}
-            >
-              {lead.corrected_text ?? lead.ocr_text ?? lead.raw_text}
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 gap-4">
-        {rest.map((a) => (
-          <div
-            key={a.id}
-            className="border-t border-newsprint-rule pt-2"
-            style={articleBackgroundStyle(a)}
-          >
-            <div className="text-[9px] font-bold uppercase tracking-widest text-primary">
-              {a.category}
-            </div>
-            <h3
-              className={`font-kannada-serif font-bold leading-tight ${a.headline_size === "medium" ? "text-lg" : "text-base"}`}
-            >
-              {a.headline}
-            </h3>
-            {a.image_url && (
-              <img
-                src={a.image_url}
-                alt=""
-                className="mt-1.5 w-full object-cover"
-                style={{ maxHeight: 110 }}
-              />
-            )}
-            <p
-              className="mt-1 font-kannada text-[12px] leading-snug"
-              style={{ columnCount: a.column_count && a.column_count > 1 ? 2 : 1, columnGap: 8 }}
-            >
-              {a.corrected_text ?? a.summary ?? a.ocr_text ?? a.raw_text}
-            </p>
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-1 flex shrink-0 justify-between border-t border-newsprint-rule pt-0.5 text-[9px] uppercase tracking-widest">
-        <span>{newspaper.edition_name}</span>
-        <span>{new Date(newspaper.edition_date).toLocaleDateString()}</span>
-        <span>Page {pageNumber}</span>
       </div>
     </div>
   );

@@ -36,13 +36,13 @@ function PublishedView() {
       import("jspdf"),
       import("html2canvas"),
     ]);
-    const pages = previewRef.current.querySelectorAll("[data-page]");
-    const pdf = new jsPDF({ unit: "px", format: [780, 1080] });
+    const pages = previewRef.current.querySelectorAll("[data-print-page]");
+    const pdf = new jsPDF({ unit: "px", format: [780, 1084] });
     for (let i = 0; i < pages.length; i++) {
       const canvas = await html2canvas(pages[i] as HTMLElement, { backgroundColor: "#ffffff", scale: 1.5 });
       const img = canvas.toDataURL("image/jpeg", 0.85);
       if (i > 0) pdf.addPage();
-      pdf.addImage(img, "JPEG", 0, 0, 780, 1080);
+      pdf.addImage(img, "JPEG", 0, 0, 780, 1084);
     }
     pdf.save(`${newspaper?.edition_name}-${newspaper?.edition_date}.pdf`);
   }

@@ -55,6 +55,8 @@ const BACKGROUND_COLORS: Array<{ label: string; value: string | null; swatch: st
 ];
 
 const BACKGROUND_COLOR_FALLBACK_KEY = "article_background_color";
+const KANNADA_TEXT_RE = /[\u0C80-\u0CFF]/;
+const LATIN_TEXT_RE = /[A-Za-z]/;
 
 function normalizeBackgroundColor(value: unknown) {
   if (typeof value === "string") {
@@ -82,6 +84,11 @@ function isMissingBackgroundColorColumn(error: unknown) {
       message.includes("schema cache") ||
       message.includes("could not find"))
   );
+}
+
+function needsKannadaConversion(text: string) {
+  const trimmed = text.trim();
+  return trimmed.length >= 20 && LATIN_TEXT_RE.test(trimmed) && !KANNADA_TEXT_RE.test(trimmed);
 }
 
 const catColor: Record<string, string> = {
@@ -140,8 +147,16 @@ export function ArticleCard({
     article.corrected_text,
     article.ocr_text,
     article.raw_text,
-  ].filter(Boolean).join("\n");
-  const sourceText = article.raw_text ?? article.ocr_text ?? article.corrected_text ?? article.summary ?? article.headline ?? "";
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const sourceText =
+    article.raw_text ??
+    article.ocr_text ??
+    article.corrected_text ??
+    article.summary ??
+    article.headline ??
+    "";
   const showConvertToKannada = editable && needsKannadaConversion(articleDisplayText);
 
   const save = useMutation({
@@ -220,20 +235,23 @@ export function ArticleCard({
       if (source.length < 20) throw new Error("Article text is too short to convert");
 
       const ai = await aiFn.process(source);
-      const { error } = await supabase.from("articles").update({
-        corrected_text: ai.corrected_text,
-        headline: ai.headline,
-        summary: ai.summary,
-        category: ai.category,
-        priority_score: ai.priority_score,
-        workflow_status: {
-          ...(article.workflow_status ?? {}),
-          ai_processing: true,
-          headline: true,
-          category: true,
-          priority: true,
-        },
-      }).eq("id", article.id);
+      const { error } = await supabase
+        .from("articles")
+        .update({
+          corrected_text: ai.corrected_text,
+          headline: ai.headline,
+          summary: ai.summary,
+          category: ai.category,
+          priority_score: ai.priority_score,
+          workflow_status: {
+            ...(article.workflow_status ?? {}),
+            ai_processing: true,
+            headline: true,
+            category: true,
+            priority: true,
+          },
+        })
+        .eq("id", article.id);
       if (error) throw error;
       return ai;
     },
@@ -243,7 +261,7 @@ export function ArticleCard({
       qc.invalidateQueries({ queryKey: ["articles", article.newspaper_id] });
       toast.success("Converted to Kannada");
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: unknown) => toast.error(errorMessage(e)),
   });
 
   async function saveImageUrl(nextImageUrl: string, source: string) {
@@ -596,6 +614,21 @@ export function ArticleCard({
           <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
             Edit
           </Button>
+          {showConvertToKannada && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => convertToKannada.mutate()}
+              disabled={convertToKannada.isPending}
+            >
+              {convertToKannada.isPending ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="mr-1 h-3.5 w-3.5" />
+              )}
+              Convert to Kannada
+            </Button>
+          )}
           <Button size="sm" variant="outline" onClick={genImage} disabled={genLoading}>
             {genLoading ? (
               <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
