@@ -23,7 +23,7 @@ function EditionsList() {
   const [form, setForm] = useState({
     edition_name: "Prajavani",
     edition_date: new Date().toISOString().slice(0, 10),
-    number_of_pages: 12,
+    number_of_pages: 1,
     template: "classic",
   });
 
@@ -87,7 +87,7 @@ function EditionsList() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label>Number of pages</Label>
-                    <Input type="number" min={4} max={32} value={form.number_of_pages} onChange={(e) => setForm({ ...form, number_of_pages: Number(e.target.value) })} />
+                    <Input type="number" min={1} max={32} value={form.number_of_pages} onChange={(e) => setForm({ ...form, number_of_pages: Number(e.target.value) })} />
                   </div>
                   <div className="space-y-1.5">
                     <Label>Template</Label>

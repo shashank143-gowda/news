@@ -609,18 +609,18 @@ def handle_generate_image(payload: dict[str, Any]) -> dict[str, Any]:
 
 def handle_generate_layout(payload: dict[str, Any]) -> dict[str, Any]:
     articles = payload.get("articles") or []
-    pages = max(1, int(payload.get("number_of_pages") or 4))
-    positions = ["top", "middle", "middle", "bottom"]
+    articles_per_page = 7
+    positions = ["top", "middle", "middle", "middle", "bottom", "bottom", "bottom"]
     layout = []
 
     sorted_articles = sorted(articles, key=lambda item: item.get("priority_score") or 0, reverse=True)
     for index, article in enumerate(sorted_articles):
-        slot = index % 4
-        is_lead = index == 0 or slot == 0
+        slot = index % articles_per_page
+        is_lead = slot == 0
         layout.append(
             {
                 "article_id": article.get("id"),
-                "page_number": min(pages, index // 4 + 1),
+                "page_number": index // articles_per_page + 1,
                 "position": positions[slot],
                 "headline_size": "big" if is_lead else "small" if slot == 3 else "medium",
                 "image_size": "large" if is_lead else "medium",
